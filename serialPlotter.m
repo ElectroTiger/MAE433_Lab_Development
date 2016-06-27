@@ -46,7 +46,7 @@ classdef serialPlotter < handle
                 % Initialize the format string used to parse incoming serial data.
                 obj.formatString = formatString;
 
-                % Create a new serial object.
+                % Create a new serial object
                 obj.serialObject = serial(portName, 'BaudRate', baudRate, 'DataBits', 8);
                 % Assign a callback function to run when information is read.
                 obj.serialObject.BytesAvailableFcnMode = 'terminator';
@@ -90,7 +90,7 @@ classdef serialPlotter < handle
                 % Open the serial port.
                 fopen(obj.serialObject);
                 % Send the reset byte.
-                fwrite(obj.serialObject, uint8(' '), 'char');
+                % fwrite(obj.serialObject, uint8(' '), 'char');
                 obj.zeroSeen = false;
             catch ME
                 fclose(obj.serialObject);
