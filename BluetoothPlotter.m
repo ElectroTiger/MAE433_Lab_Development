@@ -3,109 +3,161 @@ classdef BluetoothPlotter < handle
     properties (Access = private)
         dataMatrix
         i
-        formatString
-        serialObject
+        %Whether it is the first time a line is being read. If so, perform
+        %initialization.
+        isFirstTime
+        bluetoothObj
         plots
-        scalers
         zeroSeen
+        plotLabels
+        plotTitles
+        plotTimer
+        refreshTimer
     end
     
     methods (Access = private)
+         % Helper function which does nothing.
+        function NOP(varargins)
+        end
+        
         % Callback method when data is received from serial input.
-        function dataReceivedCallBack(obj, ~, ~)
+        function dataReceivedCallBack(this, ~, ~)
             try
-            % Read a line from the serial input. 
-            line = fgetl(obj.serialObject);
-            % Read the value into a cell.
-            dataCell = textscan(line, obj.formatString, 'Delimiter', ',');
-            if (((dataCell{1} ~= 0) && obj.zeroSeen) || dataCell {1} < 0.01)
-                obj.zeroSeen = true;
-                % Translate the cell into the data matrix.
-                obj.dataMatrix(obj.i, :) = cellfun(@double, dataCell) .* obj.scalers;
-                obj.i = obj.i + 1;
 
-                % Plot the data from the cell.
-                for j = 1:length(obj.plots)
-                    set(obj.plots(j), ...
-                    'xdata', obj.dataMatrix(1:obj.i - 1, 1), ...
-                    'ydata', obj.dataMatrix(1:obj.i - 1, j + 1));
+            % If it is the first time we're reading, then we initialize the
+            % data matrix and plots.
+            if(this.isFirstTime)
+                this.isFirstTime = false;
+                % Discard the first line, as it tends to be incomplete.
+                fgetl(this.bluetoothObj);
+                % Start processing the second line.
+                line = fgetl(this.bluetoothObj);
+                % Read the value into a cell.
+                % dataCell = textscan(line, obj.formatString, 'Delimiter', ',');
+                dataCell = strsplit(line, {',',' '});
+                dataArray = cellfun(@str2num, dataCell);
+                % Number of columns is the number of data elements read.
+                numCols = length(dataArray);
+                 % Number of rows is given by estimating that 100 transmissions
+                % per second occurs for 30 seconds.
+                numRows = 30 * 100;
+                % Now we initialize the matrix.
+                this.dataMatrix = zeros(numRows, numCols);
+                % Initialize its index to one. 
+                this.i = 1;
+                % Create plots
+                % The first argument is used as the x-axis, so there is 1
+                % less window than there are formatting string arguments.
+                numWindows = numCols - 1;
+                 % Initialize the plot tiles and plot labels to empty
+                 % cells. 
+                titleConcatLen = numWindows - length(this.plotTitles);
+                if(titleConcatLen > 0)
+                    stringCells = cell(1, titleConcatLen);
+                    stringCells(:) = {' '};
+                    this.plotTitles = [this.plotTitles, stringCells];
                 end
-                % Command a draw immediately.
-                drawnow;
+                labelConcatLen = numCols - length(this.plotLabels);
+                if(labelConcatLen > 0)
+                    stringCells = cell(1, labelConcatLen);
+                    stringCells(:) = {' '};
+                    this.plotLabels = [this.plotLabels, stringCells];
+                end
+
+                for j = 1:numWindows
+                    figure;
+                    this.plots(j) = plot(1,1);
+                    title(this.plotTitles{j}); % Causes real time plotting
+                    %to be very slow for some reason!
+                    xlabel(this.plotLabels{1});
+                    ylabel(this.plotLabels{j + 1});
+                end
+                this.refreshTimer = tic;
+            else
+                 % Read a line from the serial input. 
+                line = fgetl(this.bluetoothObj);
+                % disp(line);
+
+
+                % Read the value into a cell.
+                % dataCell = textscan(line, obj.formatString, 'Delimiter', ',');
+                dataCell = strsplit(line, {',',' '});
+                dataArray = cellfun(@str2num, dataCell);
+
+                % Translate the cell into the data matrix.
+                this.dataMatrix(this.i, :) = dataArray;
+                
+                if(toc(this.refreshTimer) > 0.033)
+                    % Plot the data from the cell.
+                    for j = 1:length(this.plots)
+                        set(this.plots(j), ...
+                        'xdata', this.dataMatrix(1:this.i, 1), ...
+                        'ydata', this.dataMatrix(1:this.i, j + 1));
+                    end
+                    % Command a draw immediately.
+                    drawnow;
+                    this.refreshTimer = tic;
+                end
+                this.i = this.i + 1;
+            %end
             end
-            catch
-                fclose(obj.serialObj);
+            catch ME
+                fclose(this.bluetoothObj);
+                rethrow(ME);
             end
         end
     end
     
     methods (Access = public)
         %Constructor method for the serialPlotter
-        function obj = BluetoothPlotter(deviceName, formatString, plotTitles, plotLabels, scalers)
-            try 
-                % Initialize the format string used to parse incoming serial data.
-                obj.formatString = formatString;
-
+        function this = BluetoothPlotter(deviceName)
                 % Create a new serial object
-                obj.serialObject = Bluetooth(deviceName, 1);
-                % Assign a callback function to run when information is read.
-                obj.serialObject.BytesAvailableFcnMode = 'terminator';
-                obj.serialObject.BytesAvailableFcn = @obj.dataReceivedCallBack;
-
-                % Initialize the data matrix.
-                % Number of columns is given by the number of format arguments
-                % that are expected.
-                numCols = length(regexp(formatString, '%[a-z|A-Z]'));
-                % Number of rows is given by estimating that 1000 transmissions
-                % per second occurs for 30 seconds.
-                numRows = 30 * 10000;
-                % Now we initialize the matrix.
-                obj.dataMatrix = zeros(numRows, numCols);
-                % Initialize its index to one. 
-                obj.i = 1;
-
-                % Create plots
-                % The first argument is used as the x-axis, so there is 1
-                % less window than there are formatting string arguments.
-                numWindows = numCols - 1;
-                for i = 1:numWindows
-                    figure;
-                    obj.plots(i) = plot(1,1);
-                    if(exist('plotTitles','var')) 
-                        %title(plotTitles{i}); % Causes real time plotting
-                        %to be very slow for some reason!
-                    end
-                    if(exist('plotLabels', 'var'))
-                        xlabel(plotLabels{1});
-                        ylabel(plotLabels{i + 1});
-                    end
-                end
-                
-                % Store the scalers
-                if(exist('scalers', 'var'))
-                    obj.scalers = scalers;
-                else
-                    obj.scalers = ones(1:numCols);
-                end
-                % Open the serial port.
-                fopen(obj.serialObject);
-                % Send the reset byte.
-                fwrite(obj.serialObject, uint8(' '), 'char');
-                obj.zeroSeen = true;
-            catch ME
-                fclose(obj.serialObject);
-                rethrow(ME);
-            end
+                this.bluetoothObj = Bluetooth(deviceName, 1);
+                this.bluetoothObj.BytesAvailableFcnMode = 'terminator';
+                this.bluetoothObj.BytesAvailableFcn = '';
+                % Initialize the plot titles and plot labels.
+                this.plotTitles = cell(1,1);
+                this.plotLabels = cell(1,1);
         end
         
         %Destructor method for the serialPlotter
-        function delete(obj)
-            fclose(obj.serialObject);
+        function delete(this)
+            this.bluetoothObj.BytesAvailableFcn = @NOP;
+            fclose(this.bluetoothObj);
+        end
+        
+        %Open the connection and begin plotting.
+        function beginPlotting(this, plotTime)
+            this.isFirstTime = true;
+            this.bluetoothObj.BytesAvailableFcn = @this.dataReceivedCallBack;
+            fopen(this.bluetoothObj);
+            fwrite(this.bluetoothObj, uint8(' '), 'char');
+            this.zeroSeen = true;
+            this.plotTimer = timer( ...
+                'ExecutionMode', 'singleShot', ...
+                'StartDelay', plotTime, ...
+                'TimerFcn', @this.stopPlotting);
+            start(this.plotTimer);
+        end
+        
+        function stopPlotting(this , ~, ~)
+            % this.bluetoothObj.BytesAvailableFcn = '';
+            fclose(this.bluetoothObj);
+        end
+        
+        % Set the titles for each of the plots.
+        function setTitles(this, plotTitles)
+             this.plotTitles = plotTitles;
+        end
+        
+        % Set the axis labels for each of the plots.
+        function setAxisLabels(this, axisLabels)
+             this.plotLabels = axisLabels;
         end
         
         % Allows the user to get a copy of the data matrix.
-        function dataMatrix = getData(obj)
-            dataMatrix = obj.dataMatrix(1:obj.i - 1, :);
+        function dataMatrix = getData(this)
+            dataMatrix = this.dataMatrix(1:this.i - 1, :);
         end
         
     end

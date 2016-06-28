@@ -1,12 +1,10 @@
-sp = serialPlotter('COM4', 115200, '%f%f%f%f', ...
-{'x Accel', 'y Accel', 'z Accel'}, ...
-{'Time (s)', 'x Accel', 'y Accel', 'z Accel'}, ...
-[1, 1, 1, 1] ...
-);
-tic;
-while (toc < 6.)
+if(~exist('sp', 'var'))
+    sp = BluetoothPlotter('Weimen''s Robot');
+    sp.setTitles({'xAccel', 'yAccel', 'zAccel'});
+    sp.setAxisLabels({'Time (s)', 'xAccel (g)', 'yAccel (g)', 'zAccel (g)'});
 end
+sp.beginPlotting(30);
 data = sp.getData();
-delete(sp);
+%delete(sp);
 
     
